@@ -1,0 +1,195 @@
+import numpy as np 
+
+class HMM:
+    def __init__(self, states, observations, transition_matrix, emission_matrix, initial_probs):
+        """ Initialisation du modèle de Markov Caché """
+        self.states = states
+        self.observations = observations
+        self.N = len(states)  # Nombre d'états cachés
+        self.M = len(observations)  # Nombre d'observations
+        self.A = np.array(transition_matrix)  # Matrice de transition
+        self.B = np.array(emission_matrix)  # Matrice d'émission
+        self.pi = np.array(initial_probs)  # Distribution initiale
+
+    def print_parameters(self):
+        """ Affichage des paramètres du HMM """
+        print("États cachés:", self.states)
+        print("Observations:", self.observations)
+        print("Matrice de transition A:")
+        print(self.A)
+        print("Matrice d'émission B:")
+        print(self.B)
+        print("Probabilités initiales π:")
+        print(self.pi)
+
+    def forward_algorithm(self, obs_seq):
+        """ Implémente l'algorithme Forward """
+        T = len(obs_seq)  # Longueur de la séquence d'observations
+        alpha = np.zeros((T, self.N))  # Matrice α[t][j]
+
+        # Étape 1 : Initialisation
+        for j in range(self.N):
+            alpha[0, j] = self.pi[j] * self.B[j, self.observations.index(obs_seq[0])]
+
+        # Étape 2 : Récurrence
+        for t in range(1, T):  # Parcours des observations
+            for j in range(self.N):  # Parcours des états
+                sum_alpha = sum(alpha[t-1, i] * self.A[i, j] for i in range(self.N))
+                alpha[t, j] = sum_alpha * self.B[j, self.observations.index(obs_seq[t])]
+
+        # Étape 3 : Terminaison
+        return alpha
+    
+    def backward_algorithm(self, obs_seq):
+        """ Implémente l'algorithme Backward """
+        T = len(obs_seq)  # Nombre d'observations
+        N = self.N  # Nombre d'états cachés
+
+        # Étape 1 : Initialisation de la table beta
+        beta = np.zeros((T, N))  # Matrice β[t][j]
+
+        # Étape 2 : Initialisation (β_T(j) = 1 pour tout j)
+        beta[T-1, :] = 1
+
+        # Étape 3 : Récurrence (de T-1 jusqu'à 1)
+        for t in range(T-2, -1, -1):  # On part de l'avant-dernier temps vers le premier
+            for j in range(N):  # Pour chaque état S_j
+                obs_index = self.observations.index(obs_seq[t+1])  # Index de O_t+1
+                beta[t, j] = sum(self.A[j, k] * self.B[k, obs_index] * beta[t+1, k] for k in range(N))
+
+        return beta  # Retourne la table beta
+    
+    def viterbi_algorithm(self, obs_seq):
+
+    
+        T = len(obs_seq)  # Longueur de la séquence d'observations
+        N = self.N  # Nombre d'états cachés
+    
+        # Étape 1 : Initialisation
+        delta = np.zeros((T, N))  # Matrice des probabilités optimales
+        psi = np.zeros((T, N), dtype=int)  # Matrice des backpointers
+    
+        # Initialisation de delta pour t = 0
+        for j in range(N):
+            obs_index = self.observations.index(obs_seq[0])
+            delta[0, j] = self.pi[j] * self.B[j, obs_index]
+            psi[0, j] = 0  # Pas de précédent au premier pas
+    
+        # Étape 2 : Récurrence
+        for t in range(1, T):  # Pour chaque temps t
+            for j in range(N):  # Pour chaque état S_j
+                obs_index = self.observations.index(obs_seq[t])
+                max_prob, best_state = max(
+                    (delta[t-1, i] * self.A[i, j], i) for i in range(N)
+                )
+                delta[t, j] = max_prob * self.B[j, obs_index]
+                psi[t, j] = best_state  # Sauvegarde du meilleur état précédent
+    
+        # Étape 3 : Backtracking (reconstruction de la séquence optimale)
+        best_last_state = np.argmax(delta[T-1, :])  # Dernier état le plus probable
+        best_path = [best_last_state]
+    
+        for t in range(T-1, 0, -1):  # Remonte les états optimaux
+            best_last_state = psi[t, best_last_state]
+            best_path.insert(0, best_last_state)  # Insère au début de la liste
+    
+        # Convertir les indices en noms d'états
+        best_path = [self.states[i] for i in best_path]
+
+        return best_path  # Retourne la séquence d'états la plus probable
+
+    def forward_backward_algorithm(self, obs_seq):
+        """
+        Implémente l'algorithme Forward-Backward pour calculer P(S_t = S_j | O, λ).
+        
+        :param obs_seq: Séquence d'observations (ex: ["Walk", "Shop", "Clean"])
+        :return: Matrice gamma contenant P(S_t = S_j | O, λ)
+        """
+        
+        T = len(obs_seq)  # Nombre d'observations
+        N = self.N  # Nombre d'états cachés
+
+        # Étape 1 : Calcul des matrices forward et backward
+        alpha = self.forward_algorithm(obs_seq)  # α_t(j)
+        beta = self.backward_algorithm(obs_seq)  # β_t(j)
+
+        # Étape 2 : Calcul de la probabilité totale P(O | λ)
+        P_O_given_lambda = np.sum(alpha[-1, :])  # Somme des α_T(j)
+
+        # Étape 3 : Calcul de γ_t(j) = P(S_t = S_j | O, λ)
+        gamma = np.zeros((T, N))  # Matrice γ_t(j)
+        
+        for t in range(T):
+            for j in range(N):
+                gamma[t, j] = (alpha[t, j] * beta[t, j]) / P_O_given_lambda
+
+        return gamma  # Retourne la matrice gamma avec les probabilités d'état
+    
+
+    def baum_welch_algorithm(self, obs_seq, n_iter=50):
+        T = len(obs_seq)  # Longueur de la séquence
+        N = self.N  # Nombre d'états cachés
+        M = self.M  # Nombre d'observations possibles
+
+        for _ in range(n_iter):
+            alpha = self.forward_algorithm(obs_seq)
+            beta = self.backward_algorithm(obs_seq)
+            
+            P_O_given_lambda = np.sum(alpha[-1, :]) + 1e-8  # Évite division par zéro
+            gamma = (alpha * beta) / P_O_given_lambda
+
+            xi = np.zeros((T-1, N, N))
+            for t in range(T-1):
+                for i in range(N):
+                    for j in range(N):
+                        obs_index = self.observations.index(obs_seq[t+1])
+                        xi[t, i, j] = (alpha[t, i] * self.A[i, j] * self.B[j, obs_index] * beta[t+1, j]) / P_O_given_lambda
+            
+            # Correction π : Mélanger avec une distribution uniforme
+            self.pi = (gamma[0, :] + 1/N) / np.sum(gamma[0, :] + 1/N)
+
+            # Mise à jour de A avec régularisation
+            for i in range(N):
+                for j in range(N):
+                    denom = np.sum(gamma[:-1, i]) + 1e-8
+                    self.A[i, j] = (np.sum(xi[:, i, j]) + 1e-3) / (denom + 1e-3)
+
+            # Mise à jour de B avec mélange d’une distribution uniforme
+            for j in range(N):
+                for k in range(M):
+                    obs_indices = [t for t in range(T) if obs_seq[t] == self.observations[k]]
+                    denom = np.sum(gamma[:, j]) + 1e-8
+                    self.B[j, k] = (np.sum(gamma[obs_indices, j]) + 1/M) / (denom + 1)
+
+            # Normalisation finale
+            self.A /= self.A.sum(axis=1, keepdims=True)
+            self.B /= self.B.sum(axis=1, keepdims=True)
+
+        return self.A, self.B, self.pi
+
+
+
+
+   
+# Définition des paramètres du HMM (rééquilibrés)
+states = ["Rainy", "Sunny"]
+observations = ["Walk", "Shop", "Clean"]
+transition_matrix = [[0.6, 0.4], [0.5, 0.5]]  # Équilibré
+emission_matrix = [[0.3, 0.3, 0.4], [0.4, 0.4, 0.2]]  # Équilibré
+initial_probs = [0.5, 0.5]  # Uniforme
+
+# Création du modèle HMM
+hmm = HMM(states, observations, transition_matrix, emission_matrix, initial_probs)
+
+# Affichage des paramètres avant l'apprentissage
+hmm.print_parameters()
+
+# Séquence plus longue pour améliorer l'apprentissage
+obs_seq = ["Walk", "Shop", "Clean", "Walk", "Walk", "Shop", "Shop", "Clean", "Walk", "Shop", "Clean", "Walk"]
+
+# Exécution de l'algorithme Baum-Welch avec régularisation réduite et moins d'itérations
+new_A, new_B, new_pi = hmm.baum_welch_algorithm(obs_seq, n_iter=20)
+
+print("Nouvelle matrice A :\n", new_A)
+print("Nouvelle matrice B :\n", new_B)
+print("Nouveaux π :\n", new_pi)
